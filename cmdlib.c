@@ -1,0 +1,707 @@
+// cmdlib.c
+#include "cmdlib.h"
+
+#define PATHSEPERATOR   '/'
+
+// set these before calling CheckParm
+int myargc;
+char **myargv;
+
+char		com_token[1024];
+qboolean	com_eof;
+char			archivedir[1024];
+qboolean		archive;
+
+/*
+=================
+Error
+	For abnormal program terminations
+=================
+*/
+void Error (char *error, ...)
+{
+	va_list argptr;
+
+	printf ("************ ERROR ************\n");
+
+	va_start (argptr,error);
+	vprintf (error,argptr);
+	va_end (argptr);
+	printf ("\n");
+	exit (1);
+}
+
+
+/*
+
+qdir will hold the path up to the quake directory, including the slash
+
+  f:\quake\
+  /raid/quake/
+
+gamedir will hold qdir + the game directory (id1, id2, etc)
+
+  */
+
+char		qdir[1024];
+char		gamedir[1024];
+
+void SetQdirFromPath (char *path)
+{
+	// Modernized: No longer requires a "quake" parent directory.
+	// All relative paths in scripts will be anchored to the Current Working Directory.
+	Q_getwd (qdir);
+	strcpy (gamedir, qdir); // Fallback for any engine functions expecting gamedir
+}
+/* OBSELETE CODE
+{
+	char	temp[1024];
+	char	*c;
+
+	if (!(path[0] == '/' || path[0] == '\\' || path[1] == ':'))
+	{	// path is partial
+		Q_getwd (temp);
+		strcat (temp, path);
+		path = temp;
+	}
+
+	// search for "quake" in path
+
+	for (c=path ; *c ; c++)
+		if (!strncasecmp (c, "quake", 5))
+		{
+			strncpy (qdir, path, c+6-path);
+			printf ("qdir: %s\n", qdir);
+			c += 6;
+			while (*c)
+			{
+				if (*c == '/' || *c == '\\')
+				{
+					strncpy (gamedir, path, c+1-path);
+					printf ("gamedir: %s\n", gamedir);
+					return;
+				}
+				c++;
+			}
+			Error ("No gamedir in %s", path);
+			return;
+		}
+	Error ("SetQdirFromPath: no 'quake' in %s", path);
+} */
+
+char *ExpandPath (char *path)
+{
+	static char full[1024];
+	if (!qdir)
+		Error ("ExpandPath called without qdir set");
+	if (path[0] == '/' || path[0] == '\\' || path[1] == ':')
+		return path;
+	sprintf (full, "%s%s", qdir, path);
+	return full;
+}
+
+char *ExpandPathAndArchive (char *path)
+{
+	char	*expanded;
+	char	archivename[1024];
+	expanded = ExpandPath(path);
+
+	if (archive)
+	{
+		sprintf (archivename, "%s/%s", archivedir, path);
+		CopyFile (expanded, archivename);
+	}
+	return expanded;
+}
+
+/*============
+FileTime
+	returns -1 if not present
+============*/
+int	FileTime (char *path)
+{
+	struct	stat	buf;
+
+	if (stat (path,&buf) == -1)
+		return -1;
+
+	return buf.st_mtime;
+}
+
+void Q_getwd (char *out)
+{
+#ifdef WIN32
+   _getcwd (out, 256);
+   strcat (out, "\\");
+#else
+   getcwd (out, 256);
+   strcat (out, "/");
+#endif
+}
+
+void Q_mkdir (char *path)
+{
+#ifdef WIN32
+	if (_mkdir (path) != -1)
+		return;
+#else
+	if (mkdir (path, 0777) != -1)
+		return;
+#endif
+	if (errno != EEXIST)
+		Error ("mkdir %s: %s",path, strerror(errno));
+}
+
+/*
+==============
+COM_Parse
+	Parse a token out of a string
+==============
+*/
+char *COM_Parse (char *data)
+{
+	int		c;
+	int		len;
+
+	len = 0;
+	com_token[0] = 0;
+
+	if (!data) return NULL;
+
+// skip whitespace
+skipwhite:
+	while ( (c = *data) <= ' ')
+	{
+		if (c == 0)
+		{
+			com_eof = true;
+			return NULL;			// end of file;
+		}
+		data++;
+	}
+
+// skip // comments
+	if (c=='/' && data[1] == '/')
+	{
+		while (*data && *data != '\n')
+			data++;
+		goto skipwhite;
+	}
+
+// handle quoted strings specially
+	if (c == '\"')
+	{
+		data++;
+		do
+		{
+			// ADD THIS GUARD: Prevent quoted strings from overflowing com_token
+			if (len >= sizeof(com_token) - 1)
+				Error ("COM_Parse: Quoted token exceeded maximum length of %d bytes!", sizeof(com_token) - 1);
+
+			c = *data++;
+			if (c=='\"')
+			{
+				com_token[len] = 0;
+				return data;
+			}
+			com_token[len] = c;
+			len++;
+		} while (1);
+	}
+
+// parse single characters
+	if (c=='{' || c=='}'|| c==')'|| c=='(' || c=='\'' || c==':')
+	{
+		com_token[len] = c;
+		len++;
+		com_token[len] = 0;
+		return data+1;
+	}
+
+// parse a regular word
+	do
+	{
+		// ADD THIS GUARD: Prevent regular words from overflowing com_token
+		if (len >= sizeof(com_token) - 1)
+			Error ("COM_Parse: Token exceeded maximum length of %d bytes!", sizeof(com_token) - 1);
+
+		com_token[len] = c;
+		data++;
+		len++;
+		c = *data;
+	if (c=='{' || c=='}'|| c==')'|| c=='(' || c=='\'' || c==':')
+			break;
+	} while (c>32);
+}
+
+char *strupr (char *start)
+{
+	char	*in;
+	in = start;
+	while (*in)
+	{
+		*in = toupper(*in);
+		in++;
+	}
+	return start;
+}
+
+char *strlower (char *start)
+{
+	char	*in;
+	in = start;
+	while (*in)
+	{
+		*in = tolower(*in);
+		in++;
+	}
+	return start;
+}
+
+
+/*
+=============================================================================
+
+						MISC FUNCTIONS
+
+=============================================================================
+*/
+
+
+/*
+=================
+CheckParm
+
+Checks for the given parameter in the program's command line arguments
+Returns the argument number (1 to argc-1) or 0 if not present
+=================
+*/
+int CheckParm (char *check)
+{
+	int             i;
+
+	for (i = 1;i<myargc;i++)
+	{
+		if ( !strcasecmp(check, myargv[i]) )
+			return i;
+	}
+
+	return 0;
+}
+
+
+
+/*
+================
+Q_filelength
+================
+*/
+int Q_filelength (FILE *f)
+{
+	struct stat buf;
+	int fd = fileno(f);
+
+    if (fstat(fd, &buf) == -1)
+		Error("Q_filelength: stat failed");
+
+	return buf.st_size;
+}
+
+
+FILE *SafeOpenWrite (char *filename)
+{
+	FILE	*f;
+
+	f = fopen(filename, "wb");
+
+	if (!f)
+		Error ("Error opening %s: %s",filename,strerror(errno));
+
+	return f;
+}
+
+FILE *SafeOpenRead (char *filename)
+{
+	FILE	*f;
+
+	f = fopen(filename, "rb");
+
+	if (!f)
+		Error ("Error opening %s: %s",filename,strerror(errno));
+
+	return f;
+}
+
+
+void SafeRead (FILE *f, void *buffer, int count)
+{
+	if ( fread (buffer, 1, count, f) != (size_t)count)
+		Error ("File read failure");
+}
+
+
+void SafeWrite (FILE *f, void *buffer, int count)
+{
+	if (fwrite (buffer, 1, count, f) != (size_t)count)
+		Error ("File read failure");
+}
+
+
+
+/*
+==============
+LoadFile
+==============
+*/
+int    LoadFile (char *filename, void **bufferptr)
+{
+	FILE	*f;
+	int    length;
+	void    *buffer;
+
+	f = SafeOpenRead (filename);
+	length = Q_filelength (f);
+	buffer = malloc (length+1);
+	((char *)buffer)[length] = 0;
+	SafeRead (f, buffer, length);
+	fclose (f);
+
+	*bufferptr = buffer;
+	return length;
+}
+
+
+/*
+==============
+SaveFile
+==============
+*/
+void    SaveFile (char *filename, void *buffer, int count)
+{
+	FILE	*f;
+
+	f = SafeOpenWrite (filename);
+	SafeWrite (f, buffer, count);
+	fclose (f);
+}
+
+
+
+void DefaultExtension (char *path, char *extension)
+{
+	char    *src;
+//
+// if path doesn't have a .EXT, append extension
+// (extension should include the .)
+//
+	src = path + strlen(path) - 1;
+
+	while (*src != PATHSEPERATOR && src != path)
+	{
+		if (*src == '.')
+			return;                 // it has an extension
+		src--;
+	}
+
+	strcat (path, extension);
+}
+
+
+void DefaultPath (char *path, char *basepath)
+{
+	char    temp[128];
+
+	if (path[0] == PATHSEPERATOR)
+		return;                   // absolute path location
+	strcpy (temp,path);
+	strcpy (path,basepath);
+	strcat (path,temp);
+}
+
+
+void    StripFilename (char *path)
+{
+	int             length;
+
+	length = strlen(path)-1;
+	while (length > 0 && path[length] != PATHSEPERATOR)
+		length--;
+	path[length] = 0;
+}
+
+void    StripExtension (char *path)
+{
+	int             length;
+
+	length = strlen(path)-1;
+	while (length > 0 && path[length] != '.')
+	{
+		length--;
+		if (path[length] == '/')
+			return;		// no extension
+	}
+	if (length)
+		path[length] = 0;
+}
+
+
+/*
+====================
+Extract file parts
+====================
+*/
+void ExtractFilePath (char *path, char *dest)
+{
+	char    *src;
+
+	src = path + strlen(path) - 1;
+
+//
+// back up until a \ or the start
+//
+	while (src != path && *(src-1) != PATHSEPERATOR)
+		src--;
+
+	memcpy (dest, path, src-path);
+	dest[src-path] = 0;
+}
+
+void ExtractFileBase (char *path, char *dest)
+{
+	char    *src;
+
+	src = path + strlen(path) - 1;
+
+//
+// back up until a \ or the start
+//
+	while (src != path && *(src-1) != PATHSEPERATOR)
+		src--;
+
+	while (*src && *src != '.')
+	{
+		*dest++ = *src++;
+	}
+	*dest = 0;
+}
+
+void ExtractFileExtension (char *path, char *dest)
+{
+	char    *src;
+
+	src = path + strlen(path) - 1;
+
+//
+// back up until a . or the start
+//
+	while (src != path && *(src-1) != '.')
+		src--;
+	if (src == path)
+	{
+		*dest = 0;	// no extension
+		return;
+	}
+
+	strcpy (dest,src);
+}
+
+
+/*
+==============
+ParseNum / ParseHex
+==============
+*/
+int ParseHex (char *hex)
+{
+	char    *str;
+	int    num;
+
+	num = 0;
+	str = hex;
+
+	while (*str)
+	{
+		num <<= 4;
+		if (*str >= '0' && *str <= '9')
+			num += *str-'0';
+		else if (*str >= 'a' && *str <= 'f')
+			num += 10 + *str-'a';
+		else if (*str >= 'A' && *str <= 'F')
+			num += 10 + *str-'A';
+		else
+			Error ("Bad hex number: %s",hex);
+		str++;
+	}
+
+	return num;
+}
+
+
+int ParseNum (char *str)
+{
+	if (str[0] == '$')
+		return ParseHex (str+1);
+	if (str[0] == '0' && str[1] == 'x')
+		return ParseHex (str+2);
+	return atol (str);
+}
+
+
+
+/*
+============================================================================
+
+					BYTE ORDER FUNCTIONS
+
+============================================================================
+*/
+
+#ifdef _SGI_SOURCE
+#define	__BIG_ENDIAN__
+#endif
+
+#ifdef __BIG_ENDIAN__
+
+int16_t	LittleShort (int16_t l)
+{
+	byte    b1,b2;
+
+	b1 = l&255;
+	b2 = (l>>8)&255;
+
+	return (b1<<8) + b2;
+}
+
+int16_t	BigShort (int16_t l)
+{
+	return l;
+}
+
+
+int32_t	LittleLong (int32_t l)
+{
+	byte    b1,b2,b3,b4;
+
+	b1 = l&255;
+	b2 = (l>>8)&255;
+	b3 = (l>>16)&255;
+	b4 = (l>>24)&255;
+
+	return ((int)b1<<24) + ((int)b2<<16) + ((int)b3<<8) + b4;
+}
+
+int32_t	BigLong (int32_t l)
+{
+	return l;
+}
+
+
+float	LittleFloat (float l)
+{
+	union {byte b[4]; float f;} in, out;
+
+	in.f = l;
+	out.b[0] = in.b[3];
+	out.b[1] = in.b[2];
+	out.b[2] = in.b[1];
+	out.b[3] = in.b[0];
+
+	return out.f;
+}
+
+float BigFloat (float l) {
+	return l;
+}
+
+#else
+
+int16_t   BigShort (int16_t l)
+{
+	byte    b1,b2;
+
+	b1 = l&255;
+	b2 = (l>>8)&255;
+
+	return (b1<<8) + b2;
+}
+
+int16_t LittleShort (int16_t l)
+{
+	return l;
+}
+
+
+int32_t    BigLong (int32_t l)
+{
+	byte    b1,b2,b3,b4;
+
+	b1 = l&255;
+	b2 = (l>>8)&255;
+	b3 = (l>>16)&255;
+	b4 = (l>>24)&255;
+
+	return ((int)b1<<24) + ((int)b2<<16) + ((int)b3<<8) + b4;
+}
+
+int32_t LittleLong (int32_t l)
+{
+	return l;
+}
+
+float BigFloat (float l) {
+	union {byte b[4]; float f;} in, out;
+
+	in.f = l;
+	out.b[0] = in.b[3];
+	out.b[1] = in.b[2];
+	out.b[2] = in.b[1];
+	out.b[3] = in.b[0];
+
+	return out.f;
+}
+
+float	LittleFloat (float l) {
+	return l;
+}
+
+#endif
+
+/*
+============
+CreatePath
+============
+*/
+void	CreatePath (char *path)
+{
+	char	*ofs, c;
+
+	for (ofs = path+1 ; *ofs ; ofs++)
+	{
+		c = *ofs;
+		if (c == '/' || c == '\\')
+		{	// create the directory
+			*ofs = 0;
+			Q_mkdir (path);
+			*ofs = c;
+		}
+	}
+}
+
+
+/*
+============
+CopyFile
+
+  Used to archive source files
+============
+*/
+void CopyFile (char *from, char *to)
+{
+	void	*buffer;
+	int		length;
+
+	length = LoadFile (from, &buffer);
+	CreatePath (to);
+	SaveFile (to, buffer, length);
+	free (buffer);
+}

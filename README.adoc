@@ -1,0 +1,127 @@
+= QLumpy Scripting Reference
+:toc: left
+:toclevels: 2
+:sectnums:
+:icons: font
+
+== Introduction
+
+QLumpy is the definitive command-line utility for compiling raw 24-bit and 8-bit image assets (TGA) into Quake-compatible formats. It operates via batch processing, reading text-based script files (typically `.ls` extensions) to automate the extraction and conversion of textures, palettes, and colormaps.
+
+To process a script, invoke QLumpy via the command line:
+
+[source,bash]
+----
+qlumpy <scriptfile.ls>
+----
+
+== Syntax Rules
+
+QLumpy's script parser is designed to be lightweight and highly forgiving regarding whitespace.
+
+* **Case Insensitivity:** Commands and directives (like `$LOAD` or `qpic`) are entirely case-insensitive.
+* **Whitespace:** Spaces, tabs, and empty lines are ignored and can be used freely to align columns for readability.
+* **Comments:** Any line beginning with a semicolon (`;`) or a hash symbol (`#`) is treated as a comment and ignored by the parser.
+
+[source,text]
+----
+# This is a comment
+; This is also a comment
+----
+
+== Global Directives
+
+Directives dictate the state of the QLumpy environment, such as declaring which source image is currently active or where the compiled output should be routed. Directives are prefixed with a `$` symbol.
+
+=== $LOAD
+Loads an image file into memory. All subsequent lump extraction commands will pull from this loaded image until a new `$LOAD` directive is issued.
+
+* **Syntax:** `$LOAD <filename>`
+* **Example:** `$LOAD textures/base_wall.tga`
+
+=== $DEST
+Overrides the default output behavior and explicitly sets the destination for the compiled WAD2 file. By default, QLumpy creates a `.wad` file named after the script file in the current directory.
+
+* **Syntax:** `$DEST <filepath>`
+* **Example:** `$DEST out/mytextures.wad`
+
+=== $SINGLEDEST
+Changes QLumpy's compilation mode from packing a WAD2 archive to outputting individual `.lmp` files. The provided argument defines the output directory for these detached lumps.
+
+* **Syntax:** `$SINGLEDEST <directory>`
+* **Example:** `$SINGLEDEST dev/raw_lumps/`
+
+== Lump Extraction Commands
+
+Extraction commands define the specific Quake data structure to be grabbed from the currently loaded image buffer.
+
+The syntax for an extraction command follows this structure: +
+`<lump_name> <command_type> [arguments]`
+
+* **`lump_name`**: The internal 16-character string name of the lump (e.g., `PALETTE`, `*WATER1`).
+* **`command_type`**: The specific formatting routine to apply to the data.
+* **`[arguments]`**: The specific parameters, coordinates, or generation rules required by the command type.
+* **`[xofs] [yofs] [width] [height]`** *(Optional)*: Integer coordinates used to crop a specific graphic out of a larger sprite-sheet. `xofs` and `yofs` represent the starting pixel offset from the top-left corner (0, 0) of the loaded image. If omitted, QLumpy will grab the *entire* image.
+
+[cols="1,3"]
+|===
+| Command | Description & Syntax
+
+| `palette`
+| **Syntax:** `[lump_name] palette <start_index> <end_index>` +
+Extracts an RGB color palette from the currently loaded image. The `start_index` and `end_index` arguments are optional (defaults to `0 255` to grab the entire 768-byte palette).
+
+| `colormap`
+| **Syntax:** `[lump_name] colormap <levels> <fullbrights>` +
+Generates a lighting colormap computationally based on the *currently loaded palette*. It does not read pixels from the screen buffer. +
+- `levels`: The total number of diminishing light levels to calculate (Standard Quake uses `64`). +
+- `fullbrights`: The number of colors at the end of the palette to exclude from darkness diminishing.
+
+| `qpic`
+| **Syntax:** `[lump_name] qpic <x> <y> <width> <height>` +
+Grabs a standard Quake Picture (often used for HUD elements and UI sprites). The coordinate arguments are **mandatory**. `x` and `y` represent the starting pixel from the top-left corner (0,0) of the loaded image.
+
+| `miptex`
+| **Syntax:** `[lump_name] miptex <x> <y> <width> <height>` +
+Generates a fully mipmapped texture (contains 4 levels of detail) for level geometry. Coordinate arguments are **mandatory**. The `width` and `height` **must** be multiples of 16 (e.g., 32, 64, 128), or the compiler will throw an error.
+
+| `raw`
+| **Syntax:** `[lump_name] raw <x> <y> <width> <height>` +
+Grabs the raw 8-bit indexed pixel data directly, bypassing specific Quake headers. Coordinate arguments are **mandatory**. For reference, this command is used for the `CONCHARS` and 'CONBACK' lump files.
+
+| `colormap2`
+| **Syntax:** `[lump_name] colormap2 <range> <levels> <fullbrights>` +
+An experimental/alternate extraction routine for secondary colormap formats that allows for overbright color tables. Requires a float value for `range` (e.g., `1.5`) alongside levels and fullbrights.
+|===
+
+=== Script Examples
+
+**Compiling a standard Colormap:**
+Because `colormap` calculates math against the active palette, you must `$LOAD` your palette image *before* calling it.
+[source,LumpyScript]
+----
+$DEST compiled/gfx.wad
+
+# Load the base image to populate the palette memory buffer
+$LOAD source/gfx/main_palette.tga
+
+# Extract the full 256 colors
+PALETTE    palette
+
+# Generate 64 levels of light, with the last 32 colors acting as fullbrights
+COLORMAP   colormap 64 32
+----
+
+**Extracting HUD Elements:**
+Because `qpic` requires offsets, grabbing the entire image still requires you to map the dimensions explicitly.
+[source,text]
+----
+$DEST compiled/hud.wad
+$LOAD source/gfx/hud_elements.tga
+
+# Extract a 32x32 health icon from the absolute top-left corner
+HEALTH_ICO   qpic   0 0 32 32
+
+# Extract a 64x32 weapon icon offset 32 pixels to the right
+WPN_SHOTGUN  qpic   32 0 64 32
+----
