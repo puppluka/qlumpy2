@@ -32,6 +32,9 @@ char *ExpandPath (char *path);
 char *ExpandPathAndArchive (char *path);
 
 void	Error (char *error, ...);
+
+const char* GetExecutableName(const char* filepath);
+
 int		CheckParm (char *check);
 
 FILE	*SafeOpenWrite (char *filename);
@@ -67,7 +70,7 @@ extern	char		com_token[1024];
 extern	qboolean	com_eof;
 
 void	CreatePath (char *path);
-void CopyFile (char *from, char *to);
+void Q_CopyFile (char *from, char *to);
 
 extern	qboolean		archive;
 extern	char			archivedir[1024];

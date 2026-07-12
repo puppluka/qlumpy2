@@ -14,6 +14,64 @@ qboolean GetToken (qboolean crossline);
 void UnGetToken (void);
 qboolean TokenAvailable (void);
 
+char current_script_name[1024];
+
+/*
+=============================================================================
+				STACK SYSTEM FOR FILE POINTER TRACKING
+=============================================================================
+*/
+
+typedef struct {
+	char *buffer;
+	char *p;
+	char *end;
+	int line;
+	char filename[1024];
+} script_stack_t;
+
+script_stack_t script_stack[MAX_INCL_STACK];
+int stack_ptr = 0;
+
+void PushScript(char *filename) {
+	if (stack_ptr >= MAX_INCL_STACK)    // too many includes guard
+		Error("PushScript: Include Stack Overflow!");
+	if (!strcasecmp(current_script_name, filename))    // self-inclusion guard
+		Error("PushScript: Script '%s' attempted to include itself!", filename);
+	for (int i = 0; i < stack_ptr; i++) {    // circular inclusion/deep recursion guard
+		if (!strcasecmp(script_stack[i].filename, filename))
+			Error("PushScript: Circular Inclusion detected for '%s'!", filename);
+	}
+
+	// save current state
+	script_stack[stack_ptr].buffer = scriptbuffer;
+	script_stack[stack_ptr].p = script_p;
+	script_stack[stack_ptr].end = scriptend_p;
+	script_stack[stack_ptr].line = scriptline;
+	strcpy(script_stack[stack_ptr].filename, current_script_name);
+	stack_ptr++;
+
+	// load new file
+	LoadScriptFile(filename);
+}
+
+qboolean PopScript(void) {
+	if (stack_ptr == 0) return false;
+	
+	// FREE the memory of the script we just parsed to prevent leaks
+	if (scriptbuffer)
+		free(scriptbuffer);
+
+	stack_ptr--;
+	
+	// Restore the parent script's state
+	scriptbuffer = script_stack[stack_ptr].buffer;
+	script_p = script_stack[stack_ptr].p;
+	scriptend_p = script_stack[stack_ptr].end;
+	scriptline = script_stack[stack_ptr].line;
+	strcpy(current_script_name, script_stack[stack_ptr].filename);
+	return true;
+}
 /*
 =============================================================================
 						PARSING STUFF
@@ -40,6 +98,8 @@ void LoadScriptFile (char *filename)
 	int            size;
 
 	size = LoadFile (filename, (void **)&scriptbuffer);
+
+	strcpy(current_script_name, filename);
 
 	script_p = scriptbuffer;
 	scriptend_p = script_p + size;

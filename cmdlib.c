@@ -31,6 +31,21 @@ void Error (char *error, ...)
 	exit (1);
 }
 
+#ifdef _WIN32
+	#include <windows.h>
+#endif
+
+const char* GetExecutableName(const char* filepath) {
+#ifdef _WIN32
+	static char path[MAX_PATH];
+	GetModuleFileName(NULL, path, MAX_PATH);
+	char *exe_name = strrchr(path, '\\');
+	return (exe_name) ? exe_name + 1 : path;
+#else
+	const char *exe_name = strrchr(filepath, '/');
+	return (exe_name) ? exe_name + 1: filepath;
+#endif
+}
 
 /*
 
@@ -109,7 +124,7 @@ char *ExpandPathAndArchive (char *path)
 	if (archive)
 	{
 		sprintf (archivename, "%s/%s", archivedir, path);
-		CopyFile (expanded, archivename);
+		Q_CopyFile (expanded, archivename);
 	}
 	return expanded;
 }
@@ -232,6 +247,9 @@ skipwhite:
 	if (c=='{' || c=='}'|| c==')'|| c=='(' || c=='\'' || c==':')
 			break;
 	} while (c>32);
+
+	com_token[len] = 0;
+	return data;
 }
 
 char *strupr (char *start)
@@ -690,12 +708,12 @@ void	CreatePath (char *path)
 
 /*
 ============
-CopyFile
+Q_CopyFile
 
   Used to archive source files
 ============
 */
-void CopyFile (char *from, char *to)
+void Q_CopyFile (char *from, char *to)
 {
 	void	*buffer;
 	int		length;

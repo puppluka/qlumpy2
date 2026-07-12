@@ -1,6 +1,6 @@
 #include "qlumpy.h"
 
-#define VERSION "2.05"  // EXPERIMENTAL RESTORATION
+#define VERSION "0.48"  // EXPERIMENTAL RESTORATION
 #define MAXLUMP 0x50000 // biggest possible lump, approximately 327.68 kilobytes.
 
 byte            *byteimage, *lbmpalette;
@@ -40,8 +40,6 @@ command_t       commands[] =
 	{NULL,NULL}                     // list terminator
 };
 
-
-
 /*
 ==============
 LoadScreen
@@ -54,6 +52,7 @@ void LoadScreen (char *name)
 
 	printf ("grabbing from %s...\n",expanded);
 	LoadTGA (expanded, &byteimage, &lbmpalette, &byteimagewidth, &byteimageheight);
+	ReportPaletteQuality(name); // palette color loss analyzer
 }
 
 
@@ -125,7 +124,17 @@ void ParseScript (void)
 	{
 		// get a command / lump name
 		GetToken (true);
-		if (endofscript) break;
+		if (endofscript) {
+			if (PopScript()) continue; // return to parent script
+			break;
+		}
+
+		if (!strcasecmp(token, "$INCL")) {
+			GetToken(false);
+			printf("Including script '%s'\n", token);
+			PushScript(token);
+			continue;
+		}
 
 		if (!strcasecmp (token,"$LOAD"))
 		{
@@ -232,11 +241,12 @@ main
 int main (int argc, char **argv)
 {
 	int i;
+	const char *exe_name = GetExecutableName(argv[0]);
 
 	printf ("QLumpy "VERSION"\nby John Carmack and Pup Luka\n\nCopyright (c) 1994 id Software\n");
 
 	if (argc == 1) {
-		printf ("Usage: %s [-archive directory] [-newwad] scriptfile [scriptfile ...]\n", argv[0]);
+		printf ("Usage: %s [-archive directory] [-newwad] scriptfile [scriptfile ...]\n", exe_name);
 		return 1;
 	}
 

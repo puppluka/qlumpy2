@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <time.h>
-#include <strings.h>
+#include <string.h>
+#include <math.h>
 //#include <sys/file.h>
 
 #ifdef WIN32
