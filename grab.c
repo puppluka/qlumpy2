@@ -113,7 +113,6 @@ void GrabPic (void)
 
 	int             x,y,xl,yl,xh,yh;
 	int             width;
-	byte            transcolor;
 	qpic_t 			*header;
 
 	GetToken (false);
@@ -127,8 +126,6 @@ void GrabPic (void)
 
 	if (xh<xl || yh<yl || xl < 0 || yl<0 || xh>319 || yh>199)
 		Error ("GrabPic: Bad size: %i, %i, %i, %i",xl,yl,xh,yh);
-
-	transcolor = 255;
 
 
 //
@@ -453,8 +450,9 @@ must be multiples of sixteen
 */
 void GrabMip (void)
 {
-    if (!byteimage || !lbmpalette)
+    if (!byteimage || !lbmpalette) {
         Error("Grab command executed before valid $LOAD marker!");
+	}
 
 	int             x,y,xl,yl,xh,yh,w,h;
 	byte            *screen_p, *source;

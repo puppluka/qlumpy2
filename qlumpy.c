@@ -104,7 +104,7 @@ void WriteFile (void)
 	char	filename[1024];
 	char	*exp;
 
-	sprintf (filename,"%s/%s.lmp", destfile, lumpname);
+	snprintf (filename, sizeof(filename), "%s/%s.lmp", destfile, lumpname);
 	exp = ExpandPath(filename);
 	printf ("saved %s\n", exp);
 	SaveFile (exp, lumpbuffer, lump_p-lumpbuffer);

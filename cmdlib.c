@@ -107,11 +107,11 @@ void SetQdirFromPath (char *path)
 char *ExpandPath (char *path)
 {
 	static char full[1024];
-	if (!qdir)
+	if (qdir[0] == '\0')
 		Error ("ExpandPath called without qdir set");
 	if (path[0] == '/' || path[0] == '\\' || path[1] == ':')
 		return path;
-	sprintf (full, "%s%s", qdir, path);
+	snprintf (full, sizeof(full), "%s%s", qdir, path);
 	return full;
 }
 
@@ -123,7 +123,7 @@ char *ExpandPathAndArchive (char *path)
 
 	if (archive)
 	{
-		sprintf (archivename, "%s/%s", archivedir, path);
+		snprintf (archivename, sizeof(archivename), "%s/%s", archivedir, path);
 		Q_CopyFile (expanded, archivename);
 	}
 	return expanded;
@@ -157,7 +157,7 @@ void Q_getwd (char *out)
 void Q_mkdir (char *path)
 {
 #ifdef WIN32
-	if (_mkdir (path) != -1)
+	if (mkdir (path) != -1)
 		return;
 #else
 	if (mkdir (path, 0777) != -1)
